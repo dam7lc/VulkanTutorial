@@ -17,6 +17,7 @@ private:
 
 	GLFWwindow* window;
 	VkInstance instance;
+	VkDebugUtilsMessengerEXT debugMessenger;
 
 	const std::vector<const char*> validationLayers = {
 		"VK_LAYER_KHRONOS_validation"
@@ -41,4 +42,7 @@ private:
 	void initVulkan();
 
 	void mainLoop();
+	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
+	void setupDebugMessenger();
+	
 };
