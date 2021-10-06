@@ -1,3 +1,12 @@
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+#include <iostream>
+#include <stdexcept>
+#include <functional>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
+#include <map>
 #include "Source.h"
 
 
@@ -13,6 +22,7 @@ int main() {
 	}
 	return EXIT_SUCCESS;
 }
+
 
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
 const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger){
@@ -31,8 +41,10 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	VkDebugUtilsMessageTypeFlagsEXT messageType,
 	const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
 	void* pUserData) {
-		std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
-
+		if(messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT){
+			std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+		}
+		
 		return VK_FALSE;
 }
 
@@ -115,15 +127,35 @@ void HelloTriangleApplication::createInstance() {
 	vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
 	//VkResult result = ;
 
-	std::cout << "available extensions:" << std::endl;
+	// std::cout << "available extensions:" << std::endl;
 
-	for(const auto& extension : extensions){
-		std::cout << "\t" << extension.extensionName << std::endl;
-	}
+	// for(const auto& extension : extensions){
+	// 	std::cout << "\t" << extension.extensionName << std::endl;
+	// }
 
 	if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create instance");
 	}
+}
+
+
+HelloTriangleApplication::QueueFamilyIndices HelloTriangleApplication::findQueueFamilies(VkPhysicalDevice device){
+	QueueFamilyIndices indices;
+	uint32_t queueFamilyCount = 0;
+	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+	std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+	
+	int i = 0;
+	for(const auto& queueFamily : queueFamilies){
+		if(queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT){
+			indices.graphicsFamily = i;
+		}
+		i++;
+	}
+	
+	return indices;
+
 }
 
 std::vector<const char*> HelloTriangleApplication::getRequiredExtensions(){
@@ -141,6 +173,7 @@ std::vector<const char*> HelloTriangleApplication::getRequiredExtensions(){
 void HelloTriangleApplication::initVulkan(){
 	createInstance();
 	setupDebugMessenger();
+	pickPhysicalDevice();
 }
 
 void HelloTriangleApplication::initWindow() {
@@ -152,10 +185,43 @@ void HelloTriangleApplication::initWindow() {
 	window = glfwCreateWindow(intWidth, intHeight, "Vulkan Triangle Tutorial", nullptr, nullptr);
 }
 
+
 void HelloTriangleApplication::mainLoop(){
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 	}
+}
+
+void HelloTriangleApplication::pickPhysicalDevice(){
+	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	uint32_t deviceCount = 0;
+	vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+	std::vector<VkPhysicalDevice> devices(deviceCount);
+	if(deviceCount == 0){
+		throw std::runtime_error("failed to find GPUs with Vulkan support!");
+	} else{
+		vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+		
+		std::multimap<int, VkPhysicalDevice> candidates;
+
+		for(const auto& device : devices){
+			int score = rateDeviceSuitability(device);
+			candidates.insert(std::make_pair(score, device));
+		}
+		if(candidates.rbegin()->first > 0){
+			physicalDevice = candidates.rbegin()->second;
+		} else{
+			throw std::runtime_error("failed to find a suitable GPU");
+		}
+
+		if(physicalDevice == VK_NULL_HANDLE){
+			throw std::runtime_error("failed to find a suitable GPU!");
+		}
+	}
+
+	
+
+
 }
 
 void HelloTriangleApplication::populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo){
@@ -164,6 +230,31 @@ void HelloTriangleApplication::populateDebugMessengerCreateInfo(VkDebugUtilsMess
 	createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 	createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 	createInfo.pfnUserCallback = debugCallback;
+}
+
+int HelloTriangleApplication::rateDeviceSuitability(VkPhysicalDevice device){
+	VkPhysicalDeviceProperties deviceProperties;
+	vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+
+	VkPhysicalDeviceFeatures deviceFeatures;
+	vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+	int score = 0;
+	if(deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU){
+		score += 1000;
+	}
+	score += deviceProperties.limits.maxImageDimension2D;
+
+	if(!deviceFeatures.geometryShader){
+		return 0;
+	} 
+	
+	QueueFamilyIndices indices = findQueueFamilies(device);
+	if(!indices.isComplete()){
+		return 0;
+	}
+
+	return score;
 }
 
 void HelloTriangleApplication::run(){
